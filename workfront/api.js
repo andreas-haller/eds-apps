@@ -56,7 +56,7 @@ function normalize(raw, type, origin) {
   };
 }
 
-export function createWorkfrontClient({ workfrontOrigin, apiVersion = 'v21.0', getToken = () => '', fetchImpl = globalThis.fetch }) {
+export function createWorkfrontClient({ workfrontOrigin, proxyOrigin, apiVersion = 'v21.0', getToken = () => '', fetchImpl = globalThis.fetch }) {
   let origin;
   try {
     const url = new URL(workfrontOrigin);
@@ -70,7 +70,18 @@ export function createWorkfrontClient({ workfrontOrigin, apiVersion = 'v21.0', g
   if (!/^v\d+\.\d+$/.test(apiVersion)) {
     throw new WorkfrontError('Configure a supported Workfront API version, such as v21.0.');
   }
-  const base = `${origin}/attask/api/${apiVersion}`;
+  let apiOrigin = origin;
+  if (proxyOrigin) {
+    try {
+      const url = new URL(proxyOrigin);
+      const local = url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname);
+      if ((url.protocol !== 'https:' && !local) || url.username || url.password) throw new Error('Invalid proxy');
+      apiOrigin = url.origin;
+    } catch {
+      throw new WorkfrontError('Configure a valid HTTPS Workfront proxy origin.');
+    }
+  }
+  const base = `${apiOrigin}/attask/api/${apiVersion}`;
   const pendingLinks = new Map();
 
   async function request(resource, parameters = {}, method = 'GET') {
@@ -86,7 +97,7 @@ export function createWorkfrontClient({ workfrontOrigin, apiVersion = 'v21.0', g
         credentials: 'omit',
         signal: controller.signal,
         headers: {
-          SessionID: token,
+          Authorization: `Bearer ${token}`,
           ...(writing ? { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' } : {}),
         },
         body: writing ? params : undefined,

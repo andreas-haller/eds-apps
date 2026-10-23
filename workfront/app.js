@@ -443,6 +443,7 @@ async function reload() {
     state.context = { ...state.context, userId: catalog.userId };
     renderEnvironment();
   } catch (error) {
+    console.error('Error while loading.', error);
     if (version !== loadVersion) return;
     state.error = error;
     find('#connection-status').replaceChildren(node('span', 'status-dot'), node('span', '', 'Not connected'));

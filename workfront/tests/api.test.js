@@ -17,13 +17,27 @@ test('direct mode requires a safe Workfront origin and supported API version', (
   assert.throws(() => createWorkfrontClient({ ...options, apiVersion: 'latest' }), /supported Workfront API version/);
 });
 
-test('catalog calls the tenant API with the host SessionID and normalizes records', async () => {
+test('proxy mode sends API calls to the proxy but keeps tenant links', async () => {
+  assert.throws(() => createWorkfrontClient({ ...options, proxyOrigin: 'http://proxy.example' }), /valid HTTPS Workfront proxy/);
+  const urls = [];
+  const client = createWorkfrontClient({ ...options, proxyOrigin: 'https://wf-proxy.example.workers.dev/', fetchImpl: async (url) => {
+    urls.push(url);
+    if (url.includes('/user/current')) return response({ ID: 'alex', name: 'Alex' });
+    if (url.includes('/task/')) return response([task]);
+    return response([]);
+  } });
+  const catalog = await client.load();
+  assert.equal(urls.every((url) => url.startsWith('https://wf-proxy.example.workers.dev/attask/api/v21.0/')), true);
+  assert.equal(catalog.tasks[0].url, 'https://northstar.my.workfront.com/task/task-1/overview');
+});
+
+test('catalog calls the tenant API with the host bearer token and normalizes records', async () => {
   const calls = [];
   const client = createWorkfrontClient({ ...options, fetchImpl: async (url, init) => {
     calls.push(url);
     assert.equal(init.credentials, 'omit');
-    assert.equal(init.headers.SessionID, 'ims-access-token');
-    assert.equal(init.headers.Authorization, undefined);
+    assert.equal(init.headers.Authorization, 'Bearer ims-access-token');
+    assert.equal(init.headers.SessionID, undefined);
     assert.match(url, /^https:\/\/northstar\.my\.workfront\.com\/attask\/api\/v21\.0\//);
     if (url.includes('/user/current')) return response({ ID: 'alex', name: 'Alex Morgan' });
     if (url.includes('/user/search')) return response([{ ID: 'alex', name: 'Alex Morgan' }]);
@@ -97,7 +111,7 @@ test('the latest host token is read for each direct API request', async () => {
     ...options,
     getToken: () => token,
     fetchImpl: async (url, init) => {
-      headers.push(init.headers.SessionID);
+      headers.push(init.headers.Authorization);
       if (url.includes('/user/current')) return response({ ID: 'alex', name: 'Alex Morgan' });
       if (url.includes('/user/search')) return response([]);
       return response([]);
@@ -106,8 +120,8 @@ test('the latest host token is read for each direct API request', async () => {
   await client.load();
   token = 'refreshed-ims-token';
   await client.load();
-  assert.equal(headers.includes('first-ims-token'), true);
-  assert.equal(headers.includes('refreshed-ims-token'), true);
+  assert.equal(headers.includes('Bearer first-ims-token'), true);
+  assert.equal(headers.includes('Bearer refreshed-ims-token'), true);
 });
 
 test('missing host token blocks the request without sending credentials', async () => {

@@ -23,9 +23,11 @@ export default Object.freeze({
 });
 ```
 
-The plugin calls Workfront directly at `https://your-tenant.my.workfront.com/attask/api/v21.0`. It reads the current IMS token from the EW SDK and sends it in Workfront's `SessionID` request header. The token stays in memory and is refreshed when EW posts an updated token; it is never written to config, storage or logs. This uses the signed-in author's Workfront permissions.
+The plugin calls Workfront directly at `https://your-tenant.my.workfront.com/attask/api/v21.0`. It reads the current IMS token from the EW SDK and sends it as an `Authorization: Bearer` header. The token stays in memory and is refreshed when EW posts an updated token; it is never written to config, storage or logs. This uses the signed-in author's Workfront permissions.
 
-Workfront must accept direct browser requests from the deployed plugin origin, including CORS preflights for the `SessionID` and `Content-Type` headers and `GET`, `POST` and `PUT` methods. The host-provided token must be valid for the configured Workfront tenant and authorized for its API. If Workfront rejects it with 401, verify the token's audience and tenant access; do not put a Workfront secret in this app or fall back to a shared account.
+If Workfront does not allow CORS from the plugin origin, deploy the Cloudflare Worker in [cors/](./cors/README.md) and set `proxyOrigin` in `config.js` to its URL. API calls then go through the proxy; record links still use `workfrontOrigin`.
+
+Without a proxy, Workfront must accept direct browser requests from the deployed plugin origin, including CORS preflights for the `Authorization` and `Content-Type` headers and `GET`, `POST` and `PUT` methods. The host-provided token must be valid for the configured Workfront tenant and authorized for its API. If Workfront rejects it with 401, verify the token's audience and tenant access; do not put a Workfront secret in this app or fall back to a shared account.
 
 The client calls these native Workfront API resources:
 
@@ -82,7 +84,7 @@ node --test workfront/tests/*.test.js
 
 Or run `npm test` inside this directory. No `npm install` is needed. The tests cover explicit matching, duplicate links, task drafts, chat payloads, host context, pagination, permissions and uncertain writes.
 
-Browser-verified embedded workflows include the official SDK MessagePort handshake, current-page context, mocked direct Workfront API responses, in-panel task details, and chat-composer insertion at a 390-pixel panel width. Unit tests verify direct request URLs, refreshed `SessionID` tokens, link and task-creation requests. Real tenant authentication and writes have not been exercised against a live account.
+Browser-verified embedded workflows include the official SDK MessagePort handshake, current-page context, mocked direct Workfront API responses, in-panel task details, and chat-composer insertion at a 390-pixel panel width. Unit tests verify direct request URLs, refreshed bearer tokens, link and task-creation requests. Real tenant authentication and writes have not been exercised against a live account.
 
 ## Assets
 
