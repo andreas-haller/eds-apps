@@ -408,7 +408,7 @@ function renderDetail(filtered) {
   const matched = [...filtered.tasks, ...filtered.projects].find((entry) => entry.id === item.id && entry.type === item.type);
   const links = node('div', 'detail-match');
   if (matched) links.append(reasonElement(matched.matchReason));
-  (item.pageLinks || []).forEach((page) => links.append(externalLink(page.url, page.path)));
+  if (item.pageUrl) links.append(externalLink(item.pageUrl, item.pageLinks?.[0]?.path || item.siteIds?.[0] || item.pageUrl));
   inner.append(links);
   pane.append(inner);
 }
@@ -443,6 +443,7 @@ async function reload() {
     state.context = { ...state.context, userId: catalog.userId };
     renderEnvironment();
   } catch (error) {
+    console.error('Error while loading.', error);
     if (version !== loadVersion) return;
     state.error = error;
     find('#connection-status').replaceChildren(node('span', 'status-dot'), node('span', '', 'Not connected'));

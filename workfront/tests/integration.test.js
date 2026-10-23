@@ -6,7 +6,7 @@ test('EW context uses the exact organization, repository and document path', () 
   const context = normalizeContext({ org: 'northstar', repo: 'website', path: '/collections/fall.html' });
   assert.equal(context.siteId, 'northstar/website');
   assert.equal(context.path, '/collections/fall.html');
-  assert.equal(context.url, 'https://da.live/edit#/northstar/website/collections/fall.html');
+  assert.equal(context.url, 'https://da.live/canvas#/northstar/website/collections/fall');
   assert.equal(context.title, 'Fall');
 });
 

@@ -2,14 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createWorkfrontClient } from '../api.js';
 
-const page = { siteId: 'northstar/website', path: '/collections/fall.html', url: 'https://da.live/edit#/northstar/website/collections/fall.html' };
-const task = { ID: 'task-1', name: 'Write copy', projectID: 'project-1', parameterValues: {} };
+const page = { siteId: 'northstar/website', path: '/collections/fall.html', url: 'https://da.live/canvas#/northstar/website/collections/fall' };
+const link = { siteId: 'northstar/website', path: '/collections/fall', url: page.url };
+const task = { ID: 'task-1', name: 'Write copy', projectID: 'project-1' };
 const options = {
   workfrontOrigin: 'https://northstar.my.workfront.com',
   apiVersion: 'v21.0',
   getToken: () => 'ims-access-token',
 };
 const response = (data, status = 200) => ({ ok: status < 400, status, json: async () => data });
+const isCurrentUser = (url) => url.includes('/user/search?ID=%24%24USER.ID&');
 
 test('direct mode requires a safe Workfront origin and supported API version', () => {
   assert.throws(() => createWorkfrontClient({ ...options, workfrontOrigin: 'https://attacker.example' }), /valid HTTPS/);
@@ -17,26 +19,49 @@ test('direct mode requires a safe Workfront origin and supported API version', (
   assert.throws(() => createWorkfrontClient({ ...options, apiVersion: 'latest' }), /supported Workfront API version/);
 });
 
-test('catalog calls the tenant API with the host SessionID and normalizes records', async () => {
+test('proxy mode sends API calls to the proxy but keeps tenant links', async () => {
+  assert.throws(() => createWorkfrontClient({ ...options, proxyOrigin: 'http://proxy.example' }), /valid HTTPS Workfront proxy/);
+  const urls = [];
+  const client = createWorkfrontClient({ ...options, proxyOrigin: 'https://wf-proxy.example.workers.dev/', fetchImpl: async (url) => {
+    urls.push(url);
+    if (isCurrentUser(url)) return response([{ ID: 'alex', name: 'Alex' }]);
+    if (url.includes('/task/')) return response([task]);
+    return response([]);
+  } });
+  const catalog = await client.load();
+  assert.equal(urls.every((url) => url.startsWith('https://wf-proxy.example.workers.dev/attask/api/v21.0/')), true);
+  assert.equal(catalog.tasks[0].url, 'https://northstar.my.workfront.com/task/task-1/overview');
+});
+
+test('catalog calls the tenant API with the host bearer token and normalizes records', async () => {
   const calls = [];
   const client = createWorkfrontClient({ ...options, fetchImpl: async (url, init) => {
     calls.push(url);
     assert.equal(init.credentials, 'omit');
-    assert.equal(init.headers.SessionID, 'ims-access-token');
-    assert.equal(init.headers.Authorization, undefined);
+    assert.equal(init.headers.Authorization, 'Bearer ims-access-token');
+    assert.equal(init.headers.SessionID, undefined);
     assert.match(url, /^https:\/\/northstar\.my\.workfront\.com\/attask\/api\/v21\.0\//);
-    if (url.includes('/user/current')) return response({ ID: 'alex', name: 'Alex Morgan' });
+    if (isCurrentUser(url)) return response([{ ID: 'alex', name: 'Alex Morgan', roleID: 'designer', userRoles: [{ roleID: 'editor' }] }]);
     if (url.includes('/user/search')) return response([{ ID: 'alex', name: 'Alex Morgan' }]);
-    if (url.includes('/project/')) return response([{ ID: 'project-1', name: 'Fall launch', parameterValues: { 'DE:EW Site': page.siteId } }]);
-    return response([{ ...task, assignedToID: 'alex', parameterValues: { 'DE:EW Page Links': JSON.stringify([page]) }, notes: [{ noteText: 'Approved messaging.', owner: { name: 'Sam' } }] }]);
+    if (url.includes('/project/')) return response([{ ID: 'project-1', name: 'Fall launch', ownerID: 'sam', projectUsers: [{ userID: 'alex' }], URL: 'https://da.live/#/northstar/website' }]);
+    return response([{ ...task, assignedToID: 'alex', assignments: [{ assignedToID: 'alex', roleID: 'designer' }, { roleID: 'editor' }], URL: page.url, notes: [{ noteText: 'Approved messaging.', owner: { name: 'Sam' } }] }]);
   } });
   const catalog = await client.load();
   assert.equal(catalog.userId, 'alex');
-  assert.equal(calls.some((url) => url.includes('/user/current?fields=ID%2Cname')), true);
+  assert.equal(calls.some((url) => url.includes('/user/search?ID=%24%24USER.ID&fields=ID%2Cname')), true);
+  assert.equal(calls.some((url) => url.includes('/user/current')), false);
   assert.equal(calls.some((url) => url.includes('/session')), false);
-  assert.deepEqual(catalog.tasks[0].pageLinks, [page]);
+  assert.deepEqual(catalog.tasks[0].pageLinks, [link]);
   assert.deepEqual(catalog.projects[0].siteIds, [page.siteId]);
+  assert.deepEqual(catalog.projects[0].pageLinks, []);
+  assert.equal(calls.some((url) => url.includes('/task/search') && url.includes('%2CURL%2C')), true);
+  assert.equal(calls.some((url) => url.includes('parameterValues')), false);
+  assert.equal(catalog.projects[0].ownerId, 'sam');
+  assert.deepEqual(catalog.projects[0].memberIds, ['sam', 'alex']);
+  assert.equal(calls.some((url) => url.includes('/project/search') && url.includes('ownerID%2CprojectUsers%3AuserID')), true);
   assert.deepEqual(catalog.tasks[0].assigneeIds, ['alex']);
+  assert.deepEqual(catalog.tasks[0].roleIds, ['editor']);
+  assert.deepEqual(catalog.users, [{ id: 'alex', name: 'Alex Morgan', roleIds: ['designer', 'editor'] }]);
   assert.equal(catalog.tasks[0].notes[0].text, 'Approved messaging.');
   assert.equal(catalog.tasks[0].url, 'https://northstar.my.workfront.com/task/task-1/overview');
 });
@@ -45,42 +70,50 @@ test('a task is reread before linking and an existing association is never rewri
   const calls = [];
   const client = createWorkfrontClient({ ...options, fetchImpl: async (url, init) => {
     calls.push(init.method);
-    return response({ ...task, parameterValues: { 'DE:EW Page Links': JSON.stringify([page]) } });
+    return response({ ...task, URL: 'https://main--website--northstar.aem.live/collections/fall' });
   } });
   assert.equal((await client.linkPage(task.ID, page)).added, false);
   assert.deepEqual(calls, ['GET']);
 });
 
-test('concurrent clicks share one write and preserve existing page links', async () => {
-  const anotherPage = { ...page, path: '/about.html', url: 'https://da.live/edit#/northstar/website/about.html' };
+test('concurrent clicks share one write to the URL field', async () => {
   let writes = 0;
   const client = createWorkfrontClient({ ...options, fetchImpl: async (url, init) => {
     if (init.method === 'PUT') {
       writes += 1;
-      assert.deepEqual(JSON.parse(init.body.get('DE:EW Page Links')), [anotherPage, page]);
-      assert.equal(init.body.has('status'), false);
-      assert.equal(init.body.has('assignedToID'), false);
+      assert.deepEqual([...init.body.keys()], ['URL']);
+      assert.equal(init.body.get('URL'), page.url);
       return response({ ID: task.ID });
     }
-    return response({ ...task, parameterValues: { 'DE:EW Page Links': JSON.stringify([anotherPage]) } });
+    return response({ ...task, URL: '' });
   } });
   await Promise.all([client.linkPage(task.ID, page), client.linkPage(task.ID, page)]);
   assert.equal(writes, 1);
 });
 
-test('task creation submits the page link and association in a single write', async () => {
+test('linking never overwrites a URL that points elsewhere', async () => {
+  const methods = [];
+  const client = createWorkfrontClient({ ...options, fetchImpl: async (url, init) => {
+    methods.push(init.method);
+    return response({ ...task, URL: 'https://da.live/canvas#/northstar/website/about' });
+  } });
+  await assert.rejects(client.linkPage(task.ID, page), /already links to https:\/\/da.live\/canvas#\/northstar\/website\/about/);
+  assert.deepEqual(methods, ['GET']);
+});
+
+test('task creation submits the page URL in a single write', async () => {
   let writes = 0;
   const client = createWorkfrontClient({ ...options, fetchImpl: async (url, init) => {
     writes += 1;
     assert.equal(init.method, 'POST');
     assert.equal(init.body.get('projectID'), 'project-1');
-    assert.match(init.body.get('description'), /Page: https:\/\/da.live\/edit#/);
-    assert.deepEqual(JSON.parse(init.body.get('DE:EW Page Links')), [page]);
-    return response({ ...task, parameterValues: { 'DE:EW Page Links': init.body.get('DE:EW Page Links') } });
+    assert.equal(init.body.get('URL'), page.url);
+    assert.equal(init.body.has('DE:EW Page Links'), false);
+    return response({ ...task, URL: init.body.get('URL') });
   } });
   const created = await client.createTask({ name: 'Write copy', projectId: 'project-1' }, page);
   assert.equal(writes, 1);
-  assert.deepEqual(created.pageLinks, [page]);
+  assert.deepEqual(created.pageLinks, [link]);
 });
 
 test('authentication and permission errors have actionable messages', async () => {
@@ -90,6 +123,11 @@ test('authentication and permission errors have actionable messages', async () =
   }
 });
 
+test('other API errors include the Workfront error message', async () => {
+  const client = createWorkfrontClient({ ...options, fetchImpl: async () => response({ error: { message: 'Unsupported query' } }, 400) });
+  await assert.rejects(client.load(), (error) => error.status === 400 && /\(400\): Unsupported query/.test(error.message));
+});
+
 test('the latest host token is read for each direct API request', async () => {
   let token = 'first-ims-token';
   const headers = [];
@@ -97,8 +135,8 @@ test('the latest host token is read for each direct API request', async () => {
     ...options,
     getToken: () => token,
     fetchImpl: async (url, init) => {
-      headers.push(init.headers.SessionID);
-      if (url.includes('/user/current')) return response({ ID: 'alex', name: 'Alex Morgan' });
+      headers.push(init.headers.Authorization);
+      if (isCurrentUser(url)) return response([{ ID: 'alex', name: 'Alex Morgan' }]);
       if (url.includes('/user/search')) return response([]);
       return response([]);
     },
@@ -106,8 +144,8 @@ test('the latest host token is read for each direct API request', async () => {
   await client.load();
   token = 'refreshed-ims-token';
   await client.load();
-  assert.equal(headers.includes('first-ims-token'), true);
-  assert.equal(headers.includes('refreshed-ims-token'), true);
+  assert.equal(headers.includes('Bearer first-ims-token'), true);
+  assert.equal(headers.includes('Bearer refreshed-ims-token'), true);
 });
 
 test('missing host token blocks the request without sending credentials', async () => {
@@ -117,9 +155,14 @@ test('missing host token blocks the request without sending credentials', async 
   assert.equal(calls, 0);
 });
 
-test('invalid association data fails explicitly rather than inferring a match', async () => {
-  const client = createWorkfrontClient({ ...options, fetchImpl: async () => response({ ...task, parameterValues: { 'DE:EW Page Links': 'not-json' } }) });
-  await assert.rejects(client.linkPage(task.ID, page), /associations.*invalid/);
+test('unrecognized URL values are ignored rather than inferring a match', async () => {
+  const client = createWorkfrontClient({ ...options, fetchImpl: async (url) => {
+    if (isCurrentUser(url)) return response([{ ID: 'alex', name: 'Alex' }]);
+    if (url.includes('/task/')) return response([{ ...task, URL: 'https://example.com/fall' }]);
+    return response([]);
+  } });
+  const [loaded] = (await client.load()).tasks;
+  assert.deepEqual([loaded.pageLinks, loaded.siteIds, loaded.pageUrl], [[], [], 'https://example.com/fall']);
 });
 
 test('failed writes are marked uncertain and are not automatically retried', async () => {
@@ -137,7 +180,7 @@ test('an incomplete success response does not invite a duplicate task creation',
 test('catalog paginates instead of silently truncating All', async () => {
   let pages = 0;
   const client = createWorkfrontClient({ ...options, fetchImpl: async (url) => {
-    if (url.includes('/user/current')) return response({ ID: 'alex', name: 'Alex Morgan' });
+    if (isCurrentUser(url)) return response([{ ID: 'alex', name: 'Alex Morgan' }]);
     if (url.includes('/user/search')) return response([{ ID: 'alex', name: 'Alex Morgan' }]);
     if (url.includes('/task/')) return response([]);
     if (url.includes('/user/')) return response([{ ID: 'alex', name: 'Alex' }]);

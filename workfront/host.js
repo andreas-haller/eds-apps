@@ -10,14 +10,14 @@ export function normalizeContext(context = {}) {
   const path = typeof context.path === 'string' && context.path
     ? `/${context.path.replace(/^\/+/, '')}`
     : '';
-  const encodedPath = path.split('/').map((segment) => encodeURIComponent(segment)).join('/');
+  const encodedPath = path.replace(/\.html$/i, '').split('/').map((segment) => encodeURIComponent(segment)).join('/');
   const filename = path.split('/').filter(Boolean).pop() || '';
   const title = filename.replace(/\.html$/, '').replace(/[-_]/g, ' ');
   return {
     siteId: `${org}/${repo}`,
     siteName: repo,
     path,
-    url: path ? `https://da.live/edit#/${encodeURIComponent(org)}/${encodeURIComponent(repo)}${encodedPath}` : '',
+    url: path ? `https://da.live/canvas#/${encodeURIComponent(org)}/${encodeURIComponent(repo)}${encodedPath}` : '',
     title: title ? `${title[0].toUpperCase()}${title.slice(1)}` : 'No page selected',
   };
 }
