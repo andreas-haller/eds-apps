@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>Page Status</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="./page-status.css">
+    <script type="module" src="./page-status.js"></script>
+  </head>
+  <body>
+    <main class="app">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">CONTENT AUDIT</p>
+          <h1>Page status</h1>
+          <p id="site" class="site">Connecting to DA…</p>
+        </div>
+        <form id="target" class="target" autocomplete="off">
+          <label>Org <input name="org" required pattern="[A-Za-z0-9][A-Za-z0-9\-_.]*" placeholder="org" disabled></label>
+          <label>Site <input name="site" required pattern="[A-Za-z0-9][A-Za-z0-9\-_.]*" placeholder="site" disabled></label>
+          <label class="check" title="Check all DA content before showing results. Slower, but finds pages that exist only in DA, and every count, sort and export is complete straight away.">
+            <input type="checkbox" name="fullScan" disabled> Full DA scan
+          </label>
+          <button class="button button-primary" type="submit" disabled>Load</button>
+        </form>
+        <div class="actions">
+          <button id="export" class="button" type="button" disabled>Export CSV</button>
+        </div>
+      </header>
+
+      <section id="summary" class="summary" aria-label="Status filters"></section>
+
+      <div class="toolbar">
+        <input id="search" type="search" placeholder="Filter by path" aria-label="Filter by path" autocomplete="off" disabled>
+        <div class="toolbar-actions">
+          <p id="result-count" class="result-count" aria-live="polite"></p>
+          <button id="copy" class="button" type="button" disabled>Copy URLs</button>
+        </div>
+      </div>
+
+      <p id="progress" class="progress" role="status" aria-live="polite"></p>
+      <p id="error" class="error" role="alert" hidden></p>
+
+      <div class="table-wrap">
+        <table id="table" hidden>
+          <thead>
+            <tr>
+              <th scope="col" class="select"><input id="select-all" type="checkbox" aria-label="Select all rows in this view"></th>
+              <th scope="col"><button type="button" data-sort="path">Path</button></th>
+              <th scope="col"><button type="button" data-sort="status">Status</button></th>
+              <th scope="col"><button type="button" data-sort="source">DA modified</button></th>
+              <th scope="col"><button type="button" data-sort="preview">Previewed</button></th>
+              <th scope="col"><button type="button" data-sort="live">Published</button></th>
+              <th scope="col"><span class="sr-only">Links</span></th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <p id="more" class="more" aria-hidden="true" hidden>Loading more…</p>
+    </main>
+    <dialog id="export-dialog" aria-labelledby="export-title">
+      <form method="dialog" class="dialog">
+        <h2 id="export-title">Export CSV</h2>
+        <fieldset>
+          <legend>Rows</legend>
+          <label class="check"><input type="radio" name="scope" value="view" checked> Current view <span class="muted" data-count="view"></span></label>
+          <label class="check"><input type="radio" name="scope" value="all"> All data <span class="muted" data-count="all"></span></label>
+        </fieldset>
+        <label id="export-da" class="check">
+          <input type="checkbox" name="loadDa" checked> Load missing DA details first <span class="muted" data-count="pending"></span>
+        </label>
+        <div class="dialog-actions">
+          <button class="button" type="submit" value="cancel" formnovalidate>Cancel</button>
+          <button class="button button-primary" type="submit" value="export">Export</button>
+        </div>
+      </form>
+    </dialog>
+    <noscript><p class="error">JavaScript is required.</p></noscript>
+  </body>
+</html>
